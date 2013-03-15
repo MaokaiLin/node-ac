@@ -1,11 +1,11 @@
 ;; node-ac-js-context.el --- Generate relevant context for Node.js
 
-;; Copyright (C) 2012 Maokai Lin
+;; Copyright (C) 2013 Maokai Lin
 
 ;; Version: 0.1
 ;; Keywords: Node.js Emacs Autocomplete
 ;; Author: Maokai Lin <Maokai.Lin@gmail.com>
-;; URL: 
+;; URL: https://github.com/MaokaiLin/node-ac
 
 ;; This file is not part of GNU Emacs.
 

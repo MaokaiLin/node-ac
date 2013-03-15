@@ -19,13 +19,16 @@ Screenshots
 
 Everybody likes screenshots:
 
-Auto-complete
+Auto-complete:
+
 ![Auto-complete screenshot](screenshots/img_ac.png)
 
-Yasnippet integration
+Yasnippet integration:
+
 ![Show documentation](screenshots/img_yasnippet.png)
 
-Evaluation
+Evaluation:
+
 ![Show expression evaluation](screenshots/img_eval.png)
 
 
@@ -38,17 +41,18 @@ First, you need a working version of [Node.js](http://nodejs.org/) with
 correctly-set path. Typing `node --version` in the terminal under any directory
 should show something like `v0.10.0`.
 
-The package depends on the following widely used Emacs libraries:
+This package depends on the following widely used Emacs libraries:
 
-* [js2-mode](http://code.google.com/p/js2-mode/). The package uses the
+* [js2-mode](http://code.google.com/p/js2-mode/). This package uses the
   js2-compiled syntax tree for various functionalities. I personally use the
   mooz improved version: <https://github.com/mooz/js2-mode>.
 
-* [Auto Complete Mode](http://cx4a.org/software/auto-complete/), or a github
+* [Auto Complete Mode](http://cx4a.org/software/auto-complete/). A github
   mirror: <https://github.com/auto-complete/auto-complete>
 
-* [yasnippet](https://github.com/capitaomorte/yasnippet). Yasnippet is used when
-  an functional auto-complete entry is selected (as shown in the screenshots).
+* [Yasnippet](https://github.com/capitaomorte/yasnippet). Yasnippet is used when
+  an auto-complete entry of a function is selected (as shown in the
+  screenshots).
 
 ### Installation and Configuration
 

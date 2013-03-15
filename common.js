@@ -1,11 +1,11 @@
 // ac.js --- Auto-complete candidate generator for Node.js
 
-// Copyright (C) 2012 Maokai Lin
+// Copyright (C) 2013 Maokai Lin
 
 // Version: 0.1
 // Keywords: Node.js Auto-complete Emacs
 // Author: Maokai Lin <Maokai.Lin@gmail.com>
-// URL: 
+// URL: https://github.com/MaokaiLin/node-ac
 
 // This file is NOT part of GNU Emacs.
 
