@@ -65,7 +65,7 @@ Note: if the code is simplified, the value shown in the
 documentation might be inaccurate. You should not rely on that
 value without further tests.")
 
-(defcustom node-ac-node-path "/usr/local/lib/node_modules"
+(defcustom node-ac-node-modules-path "/usr/local/lib/node_modules"
   "Path to the folder where node modules are installed."
   :group 'node-ac)
 
@@ -74,6 +74,9 @@ value without further tests.")
 
 
 ;;; Private variables
+
+(defvar node-ac-yas-activated nil
+  "Indicate whether the node-ac is working with yas in the current buffer.")
 
 (defvar node-ac-current-process nil
   "The node.js process currently running.")
@@ -133,13 +136,18 @@ The info is stored in terms of a list. Each entry is a list:
 		(setq node parent-node))
 	  (node-ac-get-node-scripts node))))
 
-(defun node-ac-kill-current-process ()
-  "Kill the ongoing Node.js evaluation process."
+(defun node-ac-reset ()
+  "Reset the auto-complete.
+Kill the ongoing Node.js evaluation process, and reset all existing data."
+  ;; Kill process
   (when node-ac-current-process
 	(when (process-live-p node-ac-current-process)
 	  (kill-process node-ac-current-process))
 	(delete-process node-ac-current-process)
-	(setq node-ac-current-process nil)))
+	(setq node-ac-current-process nil))
+  ;; Reset cached data
+  (setq node-ac-evaluated-syntax nil)
+  (setq node-ac-complete-info nil))
 
 (defun node-ac-syntax-under-cursor ()
   "Get the syntax under cursor, for auto-complete."
@@ -172,9 +180,17 @@ The info is stored in terms of a list. Each entry is a list:
 
 (defun node-ac-evaluated-syntax-is-prefix-of-current-syntax ()
   "Check if the evaluated syntax could be a prefix of the current syntax.
-This is to avoid multiple evaluations of syntax with the same prefix."
-  (let ((possible-syntax (node-ac-possible-syntax)))
-	(when possible-syntax
+
+This checking is to avoid multiple evaluations of syntax with the
+same prefix. However, if the prefix is much shorter than the
+possible syntax (>= 3 characters difference), we consider it not
+a legit prefix, thus needs to be evaluated again."
+  
+  (let ((possible-syntax (node-ac-possible-syntax))
+		(len (length node-ac-evaluated-syntax)))
+	(when (and possible-syntax
+			   (or (>= len 5)
+				   (<= (- (length possible-syntax) len) 2)))
 	  (not
 	   (string-match "[^_a-zA-Z0-9]"
 					 (substring-no-properties possible-syntax
@@ -187,26 +203,25 @@ It spawns a new process async, and processes the results with
 `node-ac-update' as call-back."
 
   ;; First get the current syntax
-  (let* ((point (point))
-		 syntax-for-eval context)
-	;; Check if the last evaluated syntax is a prefix of the possible syntax.
-	;; If true, no need to re-evaluate.
-	(unless (node-ac-evaluated-syntax-is-prefix-of-current-syntax)
-	  (when (setq syntax-for-eval (node-ac-syntax-under-cursor))
-		(node-ac-kill-current-process)
-		(setq node-ac-evaluating-syntax syntax-for-eval)
-		(setq node-ac-evaluated-syntax nil)
-		(setq node-ac-complete-info nil)
-		;; Put together a context for node.js evaluation before invoking auto-complete
-		(setq context (node-ac-generate-context (line-beginning-position)))
-		;; Start the process async
-		(setq node-ac-current-process
-			  (start-process node-ac-current-process-name node-ac-output-buffer-name
-							 "node" node-ac-js-source context syntax-for-eval))  ;; Execute this line in shell
-		;; When kill the process, kill quitely
-		(set-process-query-on-exit-flag node-ac-current-process nil)
-		;; Set call-back function
-		(set-process-sentinel node-ac-current-process 'node-ac-update-candidates)))))
+  (unless (input-pending-p)
+	(let* ((point (point))
+		   syntax-for-eval context)
+	  ;; Check if the last evaluated syntax is a prefix of the possible syntax.
+	  ;; If true, no need to re-evaluate.
+	  (unless (node-ac-evaluated-syntax-is-prefix-of-current-syntax)
+		(when (setq syntax-for-eval (node-ac-syntax-under-cursor))
+		  (node-ac-reset)
+		  (setq node-ac-evaluating-syntax syntax-for-eval)
+		  ;; Put together a context for node.js evaluation before invoking auto-complete
+		  (setq context (node-ac-generate-context (line-beginning-position)))
+		  ;; Start the process async
+		  (setq node-ac-current-process
+				(start-process node-ac-current-process-name node-ac-output-buffer-name
+							   "node" node-ac-js-source context syntax-for-eval))  ;; Execute this line in shell
+		  ;; When kill the process, kill quitely
+		  (set-process-query-on-exit-flag node-ac-current-process nil)
+		  ;; Set call-back function
+		  (set-process-sentinel node-ac-current-process 'node-ac-update-candidates))))))
 
 ;;; Auto-complete call-back function
 (defun node-ac-update-candidates (process event)
@@ -218,7 +233,7 @@ It spawns a new process async, and processes the results with
 	
 	;; Check the result
 	(when (and (string= event "finished\n")  ;; Finished
-			   (not (string-match "!!ERROR!!" (buffer-string)))  ;; No error
+			   (not (string= "!!ERROR!!" (node-ac-buffer-substring 1 10)))  ;; No error
 			   (or (null node-ac-evaluated-syntax)
 				   (node-ac-evaluated-syntax-is-prefix-of-current-syntax)))  ;; Matches syntax under cursor
 	  ;; Parse result
@@ -228,18 +243,15 @@ It spawns a new process async, and processes the results with
 			  (mapcar (lambda(elem) (split-string elem ">~<"))
 					  (split-string (node-ac-buffer-substring 1 (1- (point))) "~~<")))))
 	
-	;; (unless node-ac-complete-info
-	;;   (message (buffer-string)))  ;; On error, output the buffer string
+	(unless node-ac-complete-info
+	  (message (buffer-string)))  ;; On error, output the buffer string
 	(setq node-ac-evaluating-syntax nil)
   	(kill-buffer node-ac-output-buffer-name))
   
   ;; Invoke auto complete
-  (if node-ac-complete-info
-	  ;; Complete immediately when it's a dot-complete or "require('" is typed
-  	  (if (or (looking-back "\\." 1)
-  			  (looking-back "require\s*\([\'\"]\\([^\'\"\)]*\\)\\="))
-  		  (ac-complete-node-on-dot)
-  		(ac-complete-node))
+  (if (and node-ac-complete-info
+		   (not (input-pending-p)))
+	  (ac-complete-node)
   	(unless (or (string= event "killed: 9\n")
 				(string= event "finished\n"))
   	  ;; Unsuccessful but not killed or empty. Retry
@@ -261,6 +273,13 @@ It spawns a new process async, and processes the results with
 	  (when start-point
 		(yas-expand-snippet snippet start-point (point))))))
 
+(defadvice ac-complete (around node-ac-expand-yasnippet-after-complete activate)
+  "Start yasnippet when a function is selected."
+  (if node-ac-yas-activated
+	  (let ((selected-completion (ac-selected-candidate)))
+		ad-do-it
+		(node-ac-expand-snippet selected-completion))
+	ad-do-it))
 
 ;;; Functions for getting documentations
 
@@ -279,9 +298,7 @@ It spawns a new process async, and processes the results with
   (let ((syntax (node-ac-syntax-for-doc))
 		context)
 	(when syntax
-	  (node-ac-kill-current-process)
-	  (setq node-ac-evaluated-syntax nil)
-	  (setq node-ac-complete-info nil)
+	  (node-ac-reset)
 	  (setq context (node-ac-generate-context (line-beginning-position)))
 	  (setq node-ac-current-process
 			(start-process node-ac-current-process-name
@@ -337,27 +354,32 @@ Each candidate consists of:
 (defun node-ac-prefix ()
   "Get the prefix point of syntax under cursor for auto-complete.
 
+It also controls when to show auto-complete based on the set
+`ac-auto-start` value.
+
 The prefix point of the syntax under cursor is either
   - the starting point of the whole syntax if there is no dot in
      it, or
   - the point behind the last dot.
 
 For  require('  case, the prefix point is at 'r'."
-  ;; (ac-prefix-default))
-  (let ((possible-syntax (node-ac-possible-syntax)))
-  	(if possible-syntax
-  		(let ((last-property-start-point (string-match "\\.[^\.]*$" possible-syntax)))
-  		  (if last-property-start-point
-  			  (+ (- (point) (length possible-syntax)) last-property-start-point 1)
-  			(- (point) (length possible-syntax))))
-  	  (ac-prefix-default))))
+  (if node-ac-evaluated-syntax
+	  ;; When there's an evaluated syntax, try to match the prefix
+	  (let ((possible-syntax (node-ac-possible-syntax)))
+		(if (and possible-syntax
+				 (or (null ac-auto-start)
+					 (>= (length possible-syntax) ac-auto-start)))
+			;; Should start an auto-complete
+			(let ((last-property-start-point (string-match "\\.[^\.]*$" possible-syntax)))
+			  (if last-property-start-point
+				  (+ (- (point) (length possible-syntax)) last-property-start-point 1)
+				(- (point) (length possible-syntax))))
+		  ;; Else, reset
+		  (node-ac-reset)))
+	;; If no syntax evaluated, return current point just to trigger a new evaluation
+	(point)))
 
 (ac-define-source "node"
-  '((candidates . node-ac-candidates)
-    (prefix . node-ac-prefix)
-    (init . node-ac-complete)))
-
-(ac-define-source "node-on-dot"
   '((candidates . node-ac-candidates)
     (prefix . node-ac-prefix)
     (init . node-ac-complete)
@@ -426,11 +448,12 @@ For  require('  case, the prefix point is at 'r'."
 
 
 ;;; Auto-complete, show doc, and jump to definition
+
 ;;;###autoload
 (defun node-ac-auto-complete ()
   "Auto complete the syntax under cursor."
   (interactive)
-  (setq node-ac-evaluated-syntax nil)
+  (node-ac-reset)
   (node-ac-complete))
 
 ;;;###autoload
@@ -440,8 +463,8 @@ Note: it sends the completion request before inserting a dot in
 order not to mess up the syntax analysis with the newly inserted
 dot."
   (interactive)
+  (node-ac-reset)
   (insert ".")
-  (setq node-ac-evaluated-syntax nil)
   (node-ac-complete))
 
 ;;;###autoload
@@ -465,12 +488,11 @@ dot."
 ;;;###autoload
 (defun node-ac-setup ()
   "Setup node path, ac-sources, and basic key strokes."
-  (interactive)
   (unless (fboundp 'node-ac-generate-context)
 	(load-file (expand-file-name "node-ac-js-context.el" node-ac-source-dir)))
-  (setenv "NODE_PATH" node-ac-node-path)
+  (setenv "NODE_PATH" node-ac-node-modules-path)
   (add-to-list 'ac-sources 'ac-source-node)
-  (add-to-list 'ac-sources 'ac-source-node-on-dot)
+  (set (make-local-variable 'node-ac-yas-activated) t)
   (define-key node-ac-mode-map "." 'node-ac-dot-complete))
 
 ;;;###autoload

@@ -42,6 +42,8 @@ var vm = require("vm"),
 
 var common = require("./common");
 
+var errorHead = "!!ERROR!!";
+
 // hack for repl require to work properly with node_modules folders
 module.paths = require('module')._nodeModulePaths(module.filename);
 
@@ -172,7 +174,7 @@ function autocomplete(line, context) {
         try {
           obj = vm.runInContext(expr, context);
         } catch (e) {
-          console.log(common.errorHead);
+          console.log(errorHead);
           console.log(e);
           return [];
         }
@@ -200,7 +202,7 @@ function autocomplete(line, context) {
               }
             }
           } catch (e) {
-            console.log(common.errorHead);
+            console.log(errorHead);
             console.log("Completion error walking prototype chain:\n" + e);
           }
         }
@@ -358,6 +360,6 @@ try {
   var candidates = autocomplete(toBeCompleted, context);
   console.log(candidates.join("~~<"));
 } catch (e) {
-  console.log(common.errorHead);
+  console.log(errorHead);
   console.log(e.stack);
 }

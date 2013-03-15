@@ -38,6 +38,8 @@ var vm = require("vm"),
     util = require("util"),
     common = require("./common");
 
+var errorHead = "!!ERROR!!";
+
 function getDocumentOf(expr, context) {
   try {
     var obj = vm.runInContext(expr, context), doc = "";
@@ -50,7 +52,7 @@ function getDocumentOf(expr, context) {
     } else {
       var type = (typeof obj);
       type = type.charAt(0).toUpperCase() + type.slice(1) // Capitalize
-      doc = type + " " + expr + "\n" + util.inspect(obj);
+      doc = type + " " + expr + "\n\n  " + util.inspect(obj) + "  ";
     }
     if (doc.length > 300) {
       doc = doc.slice(0, 296) + " ...";
@@ -77,6 +79,6 @@ try {
   console.log(getDocumentOf(documentFor, context));
   
 } catch (e) {
-  console.log(common.errorHead);
+  console.log(errorHead);
   console.log(e.stack);
 }
