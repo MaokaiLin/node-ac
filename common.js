@@ -28,8 +28,6 @@
 var vm = require("vm"),
     express = require("express");
 
-var errorHead = "!!ERROR!!";
-
 var builtinLibs = ['assert', 'buffer', 'child_process', 'cluster',
                    'crypto', 'dgram', 'dns', 'domain', 'events', 'fs', 'http', 'https', 'net',
                    'os', 'path', 'punycode', 'querystring', 'readline', 'stream',
@@ -93,7 +91,6 @@ function createContext() {
 };
 
 // Export key functions
-exports.errorHead = errorHead;
 exports.builtinLibs = builtinLibs;
 exports.createContext = createContext;
 exports.filterScripts = filterScripts;
