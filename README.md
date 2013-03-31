@@ -67,11 +67,11 @@ In your .emacs file add:
 	(require 'node-ac-mode)
 
 It assumes your third party node modules are installed under
-/usr/local/lib/node_modules, if not:
+/usr/local/lib/node_modules, if not, add:
 
     (setq node-ac-node-modules-path "/path/to/your/modules")
 
-Add key binding if you like:
+Add key bindings if you like:
 
     (add-hook 'js2-mode-hook
 	          (lambda ()
