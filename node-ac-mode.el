@@ -98,6 +98,9 @@ value without further tests.")
 The info is stored in terms of a list. Each entry is a list:
  (list candidate symbol description documentation yasnippet)")
 
+(defvar node-ac-idle-timer nil
+  "The timer that triggers auto-complete when Emacs becomes idle.")
+
 (defvar node-ac-source-dir (if load-file-name
 							   (file-name-directory load-file-name)
 							 default-directory)
@@ -145,6 +148,9 @@ Kill the ongoing Node.js evaluation process, and reset all existing data."
 	  (kill-process node-ac-current-process))
 	(delete-process node-ac-current-process)
 	(setq node-ac-current-process nil))
+  ;; Cancel timer
+  (when node-ac-idle-timer
+	(cancel-timer node-ac-idle-timer))
   ;; Reset cached data
   (setq node-ac-evaluated-syntax nil)
   (setq node-ac-complete-info nil))
@@ -180,48 +186,39 @@ Kill the ongoing Node.js evaluation process, and reset all existing data."
 
 (defun node-ac-evaluated-syntax-is-prefix-of-current-syntax ()
   "Check if the evaluated syntax could be a prefix of the current syntax.
-
 This checking is to avoid multiple evaluations of syntax with the
-same prefix. However, if the prefix is much shorter than the
-possible syntax (>= 3 characters difference), we consider it not
-a legit prefix, thus needs to be evaluated again."
-  
-  (let ((possible-syntax (node-ac-possible-syntax))
-		(len (length node-ac-evaluated-syntax)))
-	(when (and possible-syntax
-			   (or (>= len 5)
-				   (<= (- (length possible-syntax) len) 2)))
-	  (not
-	   (string-match "[^_a-zA-Z0-9]"
-					 (substring-no-properties possible-syntax
-											  (length node-ac-evaluated-syntax)))))))
+same prefix."
+  (let ((possible-syntax (node-ac-possible-syntax)))
+	(when possible-syntax
+	  (not (string-match
+			"[^_a-zA-Z0-9]"
+			(substring-no-properties possible-syntax
+									 (length node-ac-evaluated-syntax)))))))
 
 ;;; Main function: Start auto-complete process
 (defun node-ac-complete ()
   "Send the auto-complete request to node.js for evaluation.
 It spawns a new process async, and processes the results with
 `node-ac-update' as call-back."
-
   ;; First get the current syntax
-  (unless (input-pending-p)
-	(let* ((point (point))
-		   syntax-for-eval context)
-	  ;; Check if the last evaluated syntax is a prefix of the possible syntax.
-	  ;; If true, no need to re-evaluate.
-	  (unless (node-ac-evaluated-syntax-is-prefix-of-current-syntax)
-		(when (setq syntax-for-eval (node-ac-syntax-under-cursor))
-		  (node-ac-reset)
-		  (setq node-ac-evaluating-syntax syntax-for-eval)
-		  ;; Put together a context for node.js evaluation before invoking auto-complete
-		  (setq context (node-ac-generate-context (line-beginning-position)))
-		  ;; Start the process async
-		  (setq node-ac-current-process
-				(start-process node-ac-current-process-name node-ac-output-buffer-name
-							   "node" node-ac-js-source context syntax-for-eval))  ;; Execute this line in shell
-		  ;; When kill the process, kill quitely
-		  (set-process-query-on-exit-flag node-ac-current-process nil)
-		  ;; Set call-back function
-		  (set-process-sentinel node-ac-current-process 'node-ac-update-candidates))))))
+  (let* ((point (point))
+		 syntax-for-eval context)
+	;; Check if the last evaluated syntax is a prefix of the possible syntax.
+	;; If true, no need to re-evaluate.
+	(unless (node-ac-evaluated-syntax-is-prefix-of-current-syntax)
+	  (when (setq syntax-for-eval (node-ac-syntax-under-cursor))
+		(node-ac-reset)
+		(setq node-ac-evaluating-syntax syntax-for-eval)
+		;; Put together a context for node.js evaluation before invoking auto-complete
+		(setq context (node-ac-generate-context (line-beginning-position)))
+		;; Start the process async
+		(setq node-ac-current-process
+			  (start-process node-ac-current-process-name node-ac-output-buffer-name
+							 "node" node-ac-js-source context syntax-for-eval))  ;; Execute this line in shell
+		;; When kill the process, kill quitely
+		(set-process-query-on-exit-flag node-ac-current-process nil)
+		;; Set call-back function
+		(set-process-sentinel node-ac-current-process 'node-ac-update-candidates)))))
 
 ;;; Auto-complete call-back function
 (defun node-ac-update-candidates (process event)
@@ -243,14 +240,14 @@ It spawns a new process async, and processes the results with
 			  (mapcar (lambda(elem) (split-string elem ">~<"))
 					  (split-string (node-ac-buffer-substring 1 (1- (point))) "~~<")))))
 	
-	(unless node-ac-complete-info
-	  (message (buffer-string)))  ;; On error, output the buffer string
+	;; (unless node-ac-complete-info
+	;;   (message (buffer-string)))  ;; On error, output the buffer string
 	(setq node-ac-evaluating-syntax nil)
   	(kill-buffer node-ac-output-buffer-name))
   
   ;; Invoke auto complete
   (if (and node-ac-complete-info
-		   (not (input-pending-p)))
+		   (current-idle-time))
 	  (ac-complete-node)
   	(unless (or (string= event "killed: 9\n")
 				(string= event "finished\n"))
@@ -363,21 +360,29 @@ The prefix point of the syntax under cursor is either
   - the point behind the last dot.
 
 For  require('  case, the prefix point is at 'r'."
-  (if node-ac-evaluated-syntax
-	  ;; When there's an evaluated syntax, try to match the prefix
-	  (let ((possible-syntax (node-ac-possible-syntax)))
-		(if (and possible-syntax
-				 (or (null ac-auto-start)
-					 (>= (length possible-syntax) ac-auto-start)))
-			;; Should start an auto-complete
-			(let ((last-property-start-point (string-match "\\.[^\.]*$" possible-syntax)))
-			  (if last-property-start-point
-				  (+ (- (point) (length possible-syntax)) last-property-start-point 1)
-				(- (point) (length possible-syntax))))
-		  ;; Else, reset
-		  (node-ac-reset)))
-	;; If no syntax evaluated, return current point just to trigger a new evaluation
-	(point)))
+  (if (current-idle-time)
+	  ;; Start completion immediately when emacs becomes idle for a while
+	  (if node-ac-evaluated-syntax
+		  ;; When there's an evaluated syntax, try to match the prefix
+		  (let ((possible-syntax (node-ac-possible-syntax)))
+			(if (and possible-syntax
+					 (or (null ac-auto-start)
+						 (>= (length possible-syntax) ac-auto-start)))
+				;; Should start an auto-complete
+				(let ((last-property-start-point (string-match "\\.[^\.]*$" possible-syntax)))
+				  (if last-property-start-point
+					  (+ (- (point) (length possible-syntax)) last-property-start-point 1)
+					(- (point) (length possible-syntax))))
+			  ;; Else, reset
+			  (node-ac-reset)))
+		;; If no syntax evaluated, return current point just to trigger a new evaluation
+		(point))
+	;; Emacs not idle now, schedule auto-completion in a while
+	(when node-ac-idle-timer
+	  (cancel-timer node-ac-idle-timer))
+	;; (setq node-ac-idle-timer (run-with-idle-timer 0.1 0 'node-ac-auto-complete))
+	(setq node-ac-idle-timer (run-with-idle-timer 0.1 0 'ac-complete-node))
+	nil))
 
 (ac-define-source "node"
   '((candidates . node-ac-candidates)
@@ -493,6 +498,7 @@ dot."
   (setenv "NODE_PATH" node-ac-node-modules-path)
   (add-to-list 'ac-sources 'ac-source-node)
   (set (make-local-variable 'node-ac-yas-activated) t)
+  (setq ac-expand-on-auto-complete nil)
   (define-key node-ac-mode-map "." 'node-ac-dot-complete))
 
 ;;;###autoload
