@@ -334,6 +334,23 @@ It spawns a new process async, and processes the results with
 
 ;;; Functions and definitions for node-ac auto-complete sources
 
+(defun node-ac-invoke-ac-when-idle ()
+  "Invoke auto-complete to show candidates when Emacs is idle."
+  (let ((idle-time (current-idle-time))
+		delay-time)
+	(when (timerp node-ac-idle-timer)
+	  (cancel-timer node-ac-idle-timer)
+	  (setq node-ac-idle-timer nil))
+	(if idle-time
+		(let ((micro-sec (caddr idle-time)))
+		  (if (> micro-sec (* node-ac-completion-delay 900000))
+			  (node-ac-send-request-to-nodejs)
+			(setq delay-time (- node-ac-completion-delay (/ (float micro-sec) 1000000)))))
+	  (setq delay-time node-ac-completion-delay))
+	;; Set up idle timer to request for completion later
+	(when delay-time
+	  (setq node-ac-idle-timer (run-with-idle-timer delay-time nil 'node-ac-invoke-ac-when-idle)))))
+
 (defun node-ac-candidates ()
   "Get the auto-complete candidates.
 
@@ -345,20 +362,8 @@ Each candidate consists of:
     numbers and strings, definition for functions."
   (if (node-ac-evaluated-syntax-is-prefix-of-current-syntax)
 	  node-ac-completion-popup-display-info
-	;; If syntax not evaluated yet, send re-evaluation request when idle long enough
-	(let ((idle-time (current-idle-time))
-		  delay-time)
-	  (when (timerp node-ac-idle-timer)
-		(cancel-timer node-ac-idle-timer))
-	  (if idle-time
-		  (let ((micro-sec (caddr idle-time)))
-			(if (> micro-sec (* node-ac-completion-delay 900000))
-				(node-ac-send-request-to-nodejs)
-			  (setq delay-time (- node-ac-completion-delay (/ (float micro-sec) 1000000)))))
-		(setq delay-time node-ac-completion-delay))
-	  ;; Set up idle timer to request for completion later
-	  (when delay-time
-		(setq node-ac-idle-timer (run-with-idle-timer delay-time nil 'ac-complete-node))))
+	(unless node-ac-idle-timer
+	  (setq node-ac-idle-timer (run-with-idle-timer 0 nil 'node-ac-invoke-ac-when-idle)))
 	nil))
 
 (defun node-ac-format-document (doc)
@@ -384,15 +389,15 @@ The prefix point of the syntax under cursor is either
 For  require('  case, the prefix point is at 'r'."
   (if node-ac-evaluated-syntax
 	  ;; When there's an evaluated syntax, try to match the prefix
-	  (let ((possible-syntax (node-ac-possible-syntax)))
+	  (let ((possible-syntax (node-ac-possible-syntax))
+			last-property-start-point)
 		(if (and possible-syntax
 				 (or (null ac-auto-start)
 					 (>= (length possible-syntax) ac-auto-start)))
 			;; Prefix matches, should start an auto-complete
-			(let ((last-property-start-point (string-match "\\.[^\.]*$" possible-syntax)))
-			  (if last-property-start-point
-				  (+ (- (point) (length possible-syntax)) last-property-start-point 1)
-				(- (point) (length possible-syntax))))
+			(if (setq last-property-start-point (string-match "\\.[^\.]*$" possible-syntax))
+				(+ (- (point) (length possible-syntax)) last-property-start-point 1)
+			  (- (point) (length possible-syntax)))
 		  ;; Else, reset and trigger a new evaluation
 		  (node-ac-reset)
 		  (point)))
