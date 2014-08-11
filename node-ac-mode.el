@@ -129,7 +129,10 @@ The info is stored in terms of a list. Each entry is a list:
   "Get buffer substring between START and END poitns with a boundary check."
   (let ((first-point (max 1 (min start end)))
 		(last-point (min (max start end) (point-max))))
-	(buffer-substring-no-properties first-point last-point)))
+	;; check if start == end
+	(if (> first-point last-point)
+		(buffer-substring-no-properties first-point last-point)
+		(buffer-substring-no-properties first-point (+ 1 last-point)))))
 
 (defun node-ac-js2-node-syntax (node)
   "Get the syntax corresponding to the js2 node."
