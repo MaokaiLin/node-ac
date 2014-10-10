@@ -220,7 +220,7 @@ It spawns a new process async, and processes the results with
 	;; Start the process async
 	(setq node-ac-current-process
 		  (start-process node-ac-current-process-name node-ac-output-buffer-name
-						 "node" node-ac-js-source context syntax-for-eval))  ;; Execute this line in shell
+						 "node" node-ac-js-source context (or syntax-for-eval "")))  ;; Execute this line in shell
 	;; When kill the process, kill quitely
 	(set-process-query-on-exit-flag node-ac-current-process nil)
 	;; Set call-back function
